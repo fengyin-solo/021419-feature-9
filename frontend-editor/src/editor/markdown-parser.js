@@ -181,32 +181,141 @@ function findCodeBlockStartLine(lines, codeBlockStart, currentPos) {
 }
 
 /**
- * Parse inline markdown patterns within a single line.
+ * 反转义 Markdown 文本中的反斜杠转义。
  */
-function parseInlineRegions(line, lineStart, regions) {
-  // Image: ![alt](url)
-  const imgRe = /!\[([^\]]*)\]\(([^)]+)\)/g
-  let m
-  while ((m = imgRe.exec(line)) !== null) {
+function unescapeMd(text) {
+  return text.replace(/\\([\\`*_{}\[\]()#+\-.!<>~| ])/g, '$1')
+}
+
+/**
+ * 扫描一行中的所有图片语法，推入 regions 并返回每个图片的文档区间。
+ * 支持：
+ *   ![alt](url)            ![alt](<url with spaces>)
+ *   ![alt](url "title")    ![alt]()  （空地址也能识别，渲染为空态）
+ *   嵌套括号、方括号 / 括号的反斜杠转义
+ */
+function parseInlineImages(line, lineStart, regions) {
+  const ranges = []
+  for (let i = 0; i < line.length - 1; i++) {
+    if (line[i] !== '!' || line[i + 1] !== '[') continue
+
+    // 读取 alt：遇到未转义的 ] 结束
+    let p = i + 2
+    let alt = ''
+    let altClosed = -1
+    while (p < line.length) {
+      const ch = line[p]
+      if (ch === '\\' && p + 1 < line.length) {
+        alt += ch + line[p + 1]
+        p += 2
+        continue
+      }
+      if (ch === ']') { altClosed = p; break }
+      alt += ch
+      p++
+    }
+    if (altClosed === -1 || line[altClosed + 1] !== '(') continue
+
+    let q = altClosed + 2
+    let dest = ''
+    let destClosed = -1
+
+    if (line[q] === '<') {
+      // 尖括号目标：遇到未转义的 > 结束
+      q++
+      while (q < line.length) {
+        const ch = line[q]
+        if (ch === '\\' && q + 1 < line.length) {
+          dest += ch + line[q + 1]
+          q += 2
+          continue
+        }
+        if (ch === '>') break
+        dest += ch
+        q++
+      }
+      if (line[q] !== '>') continue
+      q++
+      // 允许可选的 title
+      while (q < line.length && /\s/.test(line[q])) q++
+      if (line[q] === '"' || line[q] === "'") {
+        const quote = line[q]
+        q++
+        while (q < line.length && line[q] !== quote) q++
+        if (line[q] !== quote) continue
+        q++
+      }
+      while (q < line.length && /\s/.test(line[q])) q++
+      if (line[q] !== ')') continue
+      destClosed = q
+    } else {
+      // 普通目标：允许嵌套平衡的圆括号
+      let depth = 1
+      outer:
+      while (q < line.length) {
+        const ch = line[q]
+        if (ch === '\\' && q + 1 < line.length) {
+          dest += ch + line[q + 1]
+          q += 2
+          continue
+        }
+        switch (ch) {
+          case '(': depth++; dest += ch; q++; break
+          case ')':
+            depth--
+            if (depth === 0) { destClosed = q; break outer }
+            dest += ch; q++; break
+          default: dest += ch; q++
+        }
+      }
+      if (destClosed === -1) continue
+
+      // 剥离可选 title： /path "title" 或 /path 'title'
+      const titleMatch = dest.match(/^([\s\S]*?)\s+["'][^"']*["']\s*$/)
+      if (titleMatch) dest = titleMatch[1]
+      dest = dest.trimEnd()
+    }
+
+    const from = lineStart + i
+    const to = lineStart + destClosed + 1
+    const altFrom = lineStart + i + 2
+    const altTo = lineStart + altClosed
     regions.push({
       type: 'image',
-      from: lineStart + m.index,
-      to: lineStart + m.index + m[0].length,
-      contentFrom: lineStart + m.index + 2,
-      contentTo: lineStart + m.index + 2 + m[1].length,
-      meta: { alt: m[1], url: m[2] }
+      from,
+      to,
+      contentFrom: altFrom,
+      contentTo: altTo,
+      meta: { alt: unescapeMd(alt), url: unescapeMd(dest.trim()) }
     })
+    ranges.push({ from, to })
+    i = destClosed
   }
+  return ranges
+}
 
-  // Link: [text](url) — but not images
+/**
+ * 解析行内 Markdown 语法。
+ */
+function parseInlineRegions(line, lineStart, regions) {
+  // Image: ![alt](dest) / ![alt](<dest>) / ![alt](dest "title") / ![alt]()
+  // 使用扫描器而非单条正则，以支持空地址、尖括号地址、转义字符与嵌套括号。
+  const imageRanges = parseInlineImages(line, lineStart, regions)
+
+  // Link: [text](url) — but not images and not ranges already covered by an image
   const linkRe = /(?<!!)\[([^\]]+)\]\(([^)]+)\)/g
+  let m
   while ((m = linkRe.exec(line)) !== null) {
+    const from = lineStart + m.index
+    const to = from + m[0].length
+    const insideImage = imageRanges.some(r => r.from <= from && to <= r.to)
+    if (insideImage) continue
     regions.push({
       type: 'link',
-      from: lineStart + m.index,
-      to: lineStart + m.index + m[0].length,
-      contentFrom: lineStart + m.index + 1,
-      contentTo: lineStart + m.index + 1 + m[1].length,
+      from,
+      to,
+      contentFrom: from + 1,
+      contentTo: from + 1 + m[1].length,
       meta: { text: m[1], url: m[2] }
     })
   }

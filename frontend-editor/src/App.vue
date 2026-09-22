@@ -3,6 +3,7 @@
     <Toolbar @action="handleToolbarAction" />
     <EditorPane ref="editorPane" @ready="onEditorReady" />
     <StatusBar />
+    <ImageDialog ref="imageDialog" @confirm="handleImageConfirm" @cancel="onImageCancel" />
     <Transition name="toast">
       <div v-if="toast.visible" :class="['toast', `toast--${toast.type}`]">
         {{ toast.message }}
@@ -16,9 +17,18 @@ import { ref, reactive } from 'vue'
 import Toolbar from '@/components/Toolbar.vue'
 import EditorPane from '@/components/EditorPane.vue'
 import StatusBar from '@/components/StatusBar.vue'
+import ImageDialog from '@/components/ImageDialog.vue'
+import { parseMarkdownRegions } from '@/editor'
+import { escapeAlt, formatDestination } from '@/editor/image-utils'
 
 const editorPane = ref(null)
+const imageDialog = ref(null)
 let editorView = null
+
+/** 图片对话框单例守卫：打开期间忽略重复的「图片」操作，杜绝重复插入 */
+const imageDialogOpen = ref(false)
+/** 当前对话框对应的编辑目标；插入模式记录插入锚点，编辑模式记录原图片区间 */
+let imageEditTarget = null
 
 const toast = reactive({ visible: false, message: '', type: 'info' })
 let toastTimer = null
@@ -50,6 +60,90 @@ function insertLine(prefix) {
   editorView.focus()
 }
 
+/**
+ * 找到主选区所在的图片语法区间（选区完全落在区间内才算）。
+ */
+function findImageRegion(doc, from, to) {
+  const regions = parseMarkdownRegions(doc)
+  return regions.find(r => r.type === 'image' && from >= r.from && to <= r.to) || null
+}
+
+/**
+ * 打开图片对话框：
+ * - 光标（或选区）位于已有图片内 → 编辑模式，回填 alt / url，替换原区间
+ * - 有选中文本 → 选中文本原样保留为替代文本
+ * - 仅光标 → 在光标处插入，不改动任何正文；取消则文档零变化
+ */
+function openImageDialog() {
+  if (!editorView || imageDialogOpen.value) return
+  const { from, to } = editorView.state.selection.main
+  const doc = editorView.state.doc.toString()
+  const selected = from !== to ? editorView.state.sliceDoc(from, to) : ''
+  const region = findImageRegion(doc, from, to)
+
+  if (region) {
+    imageEditTarget = { type: 'edit', from: region.from, to: region.to }
+    imageDialogOpen.value = true
+    imageDialog.value.open({
+      mode: 'edit',
+      alt: region.meta.alt || '',
+      url: region.meta.url || ''
+    })
+    return
+  }
+
+  // 立即记录选区作为插入锚点，对话框打开期间即使编辑器失焦也能插回原位，
+  // 选中文本原样保留为替代文本；仅光标时不改动任何正文。
+  imageEditTarget = { type: 'insert', from, to }
+  imageDialogOpen.value = true
+  imageDialog.value.open({
+    mode: 'insert',
+    alt: selected,
+    url: ''
+  })
+}
+
+function onImageCancel() {
+  imageDialogOpen.value = false
+  imageEditTarget = null
+}
+
+/**
+ * 确认插入 / 保存修改。无论地址是否可访问，语法都安全写入文档；
+ * 渲染层的可恢复状态由 ImageWidget + image-state 负责，不影响正文。
+ */
+function handleImageConfirm(payload) {
+  if (!editorView) {
+    imageDialogOpen.value = false
+    return
+  }
+  imageDialogOpen.value = false
+
+  const altText = escapeAlt(payload.alt || '')
+  const dest = formatDestination(payload.url)
+  const syntax = `![${altText}](${dest})`
+
+  const target = imageEditTarget
+  imageEditTarget = null
+
+  if (target) {
+    editorView.dispatch({
+      changes: { from: target.from, to: target.to, insert: syntax },
+      selection: { anchor: target.from + syntax.length }
+    })
+    showToast(target.type === 'edit' ? '图片已更新' : '图片已插入', 'success')
+  } else {
+    // 理论上不会发生（打开时即记录锚点）；兜底回到当前光标
+    const { from, to } = editorView.state.selection.main
+    editorView.dispatch({
+      changes: { from, to, insert: syntax },
+      selection: { anchor: from + syntax.length }
+    })
+    showToast('图片已插入', 'success')
+  }
+  editorView.focus()
+}
+
 function handleToolbarAction(action) {
   const map = {
     bold: () => insertText('**', '**'),
@@ -57,7 +151,7 @@ function handleToolbarAction(action) {
     strikethrough: () => insertText('~~', '~~'),
     code: () => insertText('`', '`'),
     link: () => insertText('[', '](url)'),
-    image: () => insertText('![alt](', ')'),
+    image: openImageDialog,
     blockquote: () => insertLine('> '),
     'bullet-list': () => insertLine('- '),
     'ordered-list': () => insertLine('1. '),

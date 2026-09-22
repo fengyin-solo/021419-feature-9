@@ -137,38 +137,154 @@
   &:hover { border-bottom-color: $accent; }
 }
 
-// === Image ===
-.md-image-widget {
+// === Image — 状态机驱动（loading / empty / error / timeout / local / unsupported / loaded）===
+.md-image {
+  display: block;
+  margin: $sp-3 0;
+  max-width: 100%;
+  user-select: none;
+}
+
+.md-image__img {
   display: block;
   max-width: 100%;
-  margin: $sp-4 0;
   border-radius: $r-md;
   transition: box-shadow $t-normal $ease;
+  background: $bg-code;
   &:hover { box-shadow: $shadow-md; }
 }
 
-.md-image-placeholder {
+.md-image__caption {
+  display: block;
+  margin-top: $sp-1;
+  font-size: $fs-xs;
+  color: $text-3;
+  text-align: center;
+  font-family: $font-ui;
+}
+
+.md-image-card {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-direction: column;
-  background: $bg-code;
+  align-items: flex-start;
+  gap: $sp-3;
+  padding: $sp-4;
   border: 1.5px dashed $border;
   border-radius: $r-md;
-  padding: $sp-5;
-  color: $text-3;
-  font-size: $fs-sm;
-  min-height: 100px;
-  margin: $sp-2 0;
-  text-align: center;
-  line-height: 1.6;
+  background: $bg-code;
+  min-height: 72px;
+  line-height: 1.55;
+  transition: border-color $t-fast $ease, background $t-fast $ease;
 
-  svg {
+  &__icon {
+    display: inline-flex;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  &__body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  &__title {
+    font-family: $font-ui;
+    font-size: $fs-sm;
+    font-weight: 500;
+  }
+
+  &__detail {
+    font-family: $font-mono;
+    font-size: $fs-xs;
+    color: $text-3;
+    word-break: break-all;
+  }
+
+  &__hint {
+    font-size: $fs-xs;
+    color: $text-3;
+  }
+
+  &__actions {
+    display: flex;
+    align-items: center;
     flex-shrink: 0;
   }
 
-  span {
-    word-break: break-all;
+  &--loading {
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: $sp-2;
+    color: $text-3;
+    font-size: $fs-sm;
+  }
+
+  &--muted {
+    color: $text-3;
+    border-color: $border;
+  }
+
+  &--warning {
+    color: $warning;
+    border-color: rgba(217, 119, 6, 0.45);
+    background: rgba(217, 119, 6, 0.05);
+    .md-image-card__detail,
+    .md-image-card__hint { color: rgba(180, 83, 9, 0.85); }
+  }
+
+  &--error {
+    color: $error;
+    border-color: rgba(220, 38, 38, 0.4);
+    background: rgba(220, 38, 38, 0.04);
+    .md-image-card__detail,
+    .md-image-card__hint { color: rgba(185, 28, 28, 0.8); }
+  }
+}
+
+// 加载中转圈
+.md-image-spinner {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid $border;
+  border-top-color: $accent;
+  animation: md-image-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes md-image-spin {
+  to { transform: rotate(360deg); }
+}
+
+// 重试按钮（正文卡片与对话框预览共用）
+.md-image-retry {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 $sp-3;
+  border: 1px solid currentColor;
+  border-radius: $r-full;
+  background: transparent;
+  color: inherit;
+  font-family: $font-ui;
+  font-size: $fs-xs;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all $t-fast $ease;
+
+  &:hover {
+    background: currentColor;
+    .md-image-retry__icon, span { color: #fff; }
+  }
+
+  &:active { transform: scale(0.95); }
+
+  &__icon {
+    display: inline-flex;
   }
 }
 
