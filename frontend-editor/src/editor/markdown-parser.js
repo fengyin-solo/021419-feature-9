@@ -184,8 +184,9 @@ function findCodeBlockStartLine(lines, codeBlockStart, currentPos) {
  * Parse inline markdown patterns within a single line.
  */
 function parseInlineRegions(line, lineStart, regions) {
-  // Image: ![alt](url)
-  const imgRe = /!\[([^\]]*)\]\(([^)]+)\)/g
+  // Image: ![alt](url) / ![alt]() / ![alt](url "title")
+  // 允许空地址（交给预览层展示空态），允许可选 title（保留在 region 范围内，不参与渲染）
+  const imgRe = /!\[([^\]]*)\]\(\s*([^)\s]*)(?:\s+("[^"]*"|'[^']*'))?\s*\)/g
   let m
   while ((m = imgRe.exec(line)) !== null) {
     regions.push({
@@ -194,7 +195,7 @@ function parseInlineRegions(line, lineStart, regions) {
       to: lineStart + m.index + m[0].length,
       contentFrom: lineStart + m.index + 2,
       contentTo: lineStart + m.index + 2 + m[1].length,
-      meta: { alt: m[1], url: m[2] }
+      meta: { alt: m[1], url: m[2], title: m[3] || '' }
     })
   }
 

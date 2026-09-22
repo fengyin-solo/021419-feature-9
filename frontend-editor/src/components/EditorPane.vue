@@ -25,6 +25,7 @@ onMounted(() => {
     }
   })
   store.updateContent(editorView.state.doc.toString())
+  store.markSaved() // 初始内容不算未保存，保存提示从首次真实编辑开始
   emit('ready', editorView)
 })
 
